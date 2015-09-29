@@ -10,7 +10,9 @@ Usage
 ----
 	python launch.py <data.win> [output_dir]
 
-*<data.win>* refers to the main resource file usually called with this name
+*&lt;data.win&gt;* refers to the main resource file usually called with this name.
+
+
 *[output_dir]* Optional base directory for the recovered resources, it defaults to "data"
 
 Progress
