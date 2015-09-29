@@ -35,6 +35,8 @@ class Data:
         for sect in self.sections:
             if sect.tag in self.filenames.keys():
                 sect.saveResources(base_path, filenames=self.filenames[sect.tag], data_file=fs)
+            else:
+                sect.saveResources(base_path, data_file=fs)
             
         logging.info('### Resources saved ###')
                         
@@ -53,6 +55,7 @@ class Section:
             'GEN8':IgnoreSection,
             'SOND':SoundSection,
             'AUDO':AudioSection,
+            'TXTR':TextureSection,
             }
         section_tag = fs.readTag()
         if section_tag == 'EOF':
@@ -154,6 +157,8 @@ class SoundEntry:
                     filename=self.filename, effects=bytes_to_hex(self.effects),
                     volume=bytes_to_hex(self.volume), pan=bytes_to_hex(self.pan),
                     preload=bytes_to_hex(self.preload), audo_index=self.audo_index)
+    
+    
            
 class AudioSection(Section):  
     def __init__(self, *args):
@@ -189,12 +194,97 @@ class AudioSection(Section):
             fname = os.path.join(audio_dir, name)
             data_file.moveToOffset(off)
             audio_len = data_file.readInt()
-            audio_data = data_file.readBytes(audio_len)#Now is when we load the audio data
+            audio_data = data_file.readBytes(audio_len)# Now is when we load the audio data
             with open(fname, 'wb') as f:
                 f.write(audio_data) # And we store it
                 
         logging.info('Saved {0} audio files'.format(len(self.audio_offsets)))
 
+class TextureSection(Section):    
+    def __init__(self, *args):
+        Section.__init__(self, *args)
+        self.texture_offsets = []
+        self.texture_entries = []
+    
+    def load(self, fs):
+        logging.info('### Processing Texture Section ###')
+        count = fs.readInt()
+        logging.info('Reading {0} entry offsets'.format(count))
+        for i in range(count):
+            self.texture_offsets.append(fs.readInt())  
+        logging.info('Loading {0} entries'.format(count))
+        
+        for off in self.texture_offsets:
+            fs.moveToOffset(off)
+            entry = TextureEntry()
+            entry.load(fs)
+            self.texture_entries.append(entry)
+        #Calculate sizes
+        for i in range(len(self.texture_entries)-1):
+            entry = self.texture_entries[i]
+            if entry.image_size == -1: # this entry was unable to determine the size, let's calculate it
+                entry.image_size = self.texture_entries[i+1].image_offset - entry.image_offset
+                
+        last_entry = self.texture_entries[-1]
+        last_off = self.start_off + self.size
+        if last_entry.image_size == -1:            
+            last_entry.image_size = last_off - last_entry.image_offset            
+        fs.moveToOffset(last_off)
+            
+    def saveResources(self, base_dir, subdir='textures', filenames=[], data_file=None):
+        logging.info('### Saving Resources for Texture section ###')
+        if data_file is None:
+            raise Exception('Cannot locate data file')
+        
+        tex_dir = os.path.join(base_dir, subdir)
+        if not os.path.exists(tex_dir):
+            os.mkdir(tex_dir)
+        
+        if len(filenames) == 0:
+            base_tex = 'tex'
+            for i in range(len(self.texture_offsets)):
+                filenames.append(base_tex+str(i)+'.png')
+        
+        for name, entry in zip(filenames, self.texture_entries):
+            fname = os.path.join(tex_dir, name)
+            data_file.moveToOffset(entry.image_offset)
+            tex_len = entry.image_size
+            tex_data = data_file.readBytes(tex_len)
+            with open(fname, 'wb') as f:
+                f.write(tex_data) 
+                
+        logging.info('Saved {0} texture files'.format(len(self.texture_entries)))
+        
+
+class TextureEntry:
+    def __init__(self):
+        self.magic = 0
+        self.image_offset = 0 #In case of magic 1 the next 4 bytes indicate a offset to an image
+        self.image_size = -1
+        
+    #Little trick to simulate a switch block    
+    def __case0(self, fs):
+        pass
+        
+    def __case1(self, fs):
+        self.image_offset = fs.readInt()        
+    
+    def load(self, fs):
+        self.magic = fs.readInt()
+        __CASES = {
+            0:self.__case0,
+            1:self.__case1,
+            }
+        func = __CASES.get(self.magic, self.__case0)
+        func(fs)
+    
+    def __repr__(self):
+        return str.format('<TextureEntry magic={magic:d}, image_offset={image_offset:d}, '+
+                          'image_size={image_size:d}>',
+                          magic=self.magic, image_offset=self.image_offset,
+                          image_size=self.image_size)
+    
+    
         
         
         
