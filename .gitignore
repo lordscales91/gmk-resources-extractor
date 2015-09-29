@@ -1,0 +1,11 @@
+#Ignore Byte-code
+__pycache__/
+*.py[cod]
+
+#Ignore sample directory
+/data/
+
+#Ignore Eclipse PyDev specific files
+/.project
+/.pydevproject
+/.settings
