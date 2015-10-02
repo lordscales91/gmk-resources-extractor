@@ -9,12 +9,16 @@ I'm not responsible of any unintended use of this program, use it at your own ri
 Usage
 ----
 	python launch.py <data.win> [output_dir]
+	[-ignore {sound,textures,sprites} [{sound,textures,sprites} ...]]
+	[-h, --help]Show the help
 
 *&lt;data.win&gt;* refers to the main resource file usually called with this name.
 
 
 *[output_dir]* Optional base directory for the recovered resources, it defaults to "data"
 
+*[-ignore]* Optionally you can specify which should be ignored, therefore not saved to disk
+
 Progress
 ----
-This is the very first commit, at this point the only resources the program can recover are the audio files, I will be adding support for more resources soon starting with the textures.
+So far this utility is able to recover audio and texture files, as well as sprite metadata

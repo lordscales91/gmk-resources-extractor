@@ -1,6 +1,9 @@
 from .util import FileReadStream, bytes_to_hex
+import xml.etree.ElementTree as tree
+from xml.dom import minidom
 import os
 import logging
+import math
 
 class Data:
     
@@ -42,7 +45,7 @@ class Data:
                         
             
 class Section:    
-    
+    IGNORES = []
     def __init__(self, tag, size, start_off):
         self.tag=tag
         self.size=size
@@ -56,11 +59,16 @@ class Section:
             'SOND':SoundSection,
             'AUDO':AudioSection,
             'TXTR':TextureSection,
+            'SPRT':SpriteSection,
             }
         section_tag = fs.readTag()
         if section_tag == 'EOF':
             return IgnoreSection('EOF', 0, 0)
         section_size = fs.readInt()
+        if section_tag in Section.IGNORES:
+            ignore = IgnoreSection(section_tag, section_size, fs.currOffset())
+            ignore.load(fs)
+            return ignore
         clazz = _CLASSES.get(section_tag, IgnoreSection)
         ret = clazz(section_tag, section_size, fs.currOffset())
         ret.load(fs)
@@ -283,11 +291,110 @@ class TextureEntry:
                           'image_size={image_size:d}>',
                           magic=self.magic, image_offset=self.image_offset,
                           image_size=self.image_size)
+
+class SpriteSection(Section):
+    def __init__(self, *args):
+        Section.__init__(self, *args)
+        self.sprite_offsets = []
+        self.sprite_entries = []        
+        
+    def load(self, fs):
+        logging.info('### Processing Sprite Section ###')
+        count = fs.readInt()
+        logging.info('Reading {0} offset entries'.format(count))
+        for i in range(count):
+            self.sprite_offsets.append(fs.readInt())
+        logging.info('Loading {0} entries'.format(count))
+        for off in self.sprite_offsets:
+            fs.moveToOffset(off)
+            entry = SpriteEntry()
+            entry.load(fs)
+            self.sprite_entries.append(entry)
+            
+    def saveResources(self, base_dir, subdir=None, filenames=None, data_file=None):
+        logging.info('### Saving Resources for Sprite section ###')
+        root = tree.Element('sprites')
+        for entry in self.sprite_entries:
+            attrib={'name':entry.name,
+                    'width':str(entry.width),
+                    'height':str(entry.height),
+                    'leftPad':str(entry.leftPad),
+                    'rightPad':str(entry.rightPad),
+                    'bottomPad':str(entry.bottomPad),
+                    'originX':str(entry.originX),
+                    'originY':str(entry.originY),
+                    'collision_mask':str(entry.collision_mask),}
+            e = tree.SubElement(root, 'sprite', attrib)
+            # e.text = 'Mask = '+bytes_to_hex(entry.mask)
+            subimages = tree.SubElement(e, 'subimages')
+            for off in entry.subimages_offsets:
+                tree.SubElement(subimages, 'offset', {'value':str(off)})
+                
+        ugly = tree.tostring(root, 'utf-8')
+        reparsed = minidom.parseString(ugly)
+        pretty = reparsed.toprettyxml(indent='  ', newl=os.linesep, encoding='utf-8')
+        xml = os.path.join(base_dir, 'sprites.xml')
+        with open(xml, 'wb') as f:
+            f.write(pretty)
+        logging.info('Saved {0} sprite entries metadata into an XML'.format(len(self.sprite_entries)))
+        
+
+class SpriteEntry:
+    def __init__(self):
+        self.name = ''
+        self.width = 0
+        self.height = 0
+        self.leftPad = 0
+        self.rightPad = 0
+        self.bottomPad = 0
+        self.topPad = 0
+        self.originX = 0
+        self.originY = 0
+        self.subimages_offsets = []
+        self.collision_mask = 0
+        self.mask = b''
     
+    def load(self, fs):
+        self.name = fs.readOffsetStr()
+        self.width = fs.readInt()
+        self.height = fs.readInt()
+        self.leftPad = fs.readInt()
+        self.rightPad = fs.readInt()
+        self.bottomPad = fs.readInt()
+        self.topPad = fs.readInt()
+        fs.skipBytes(5*4) #Unknown bytes
+        self.originX = fs.readInt()
+        self.originY = fs.readInt()
+        count = fs.readInt() #Number of sub-images
+        for i in range(count):
+            self.subimages_offsets.append(fs.readInt())
+        self.collision_mask = fs.readInt()
+        for i in range(math.ceil(self.width/8) * self.height):
+            self.mask += fs.readBytes(1)
+            
+    def __repr__(self):
+        return str.format('<SpriteEntry name={name:}, width={width:d}, height={height:d}, '+
+                          'originX={originX:d}, originY={originY:d}>',
+                          name=self.name, width=self.width, height=self.height, originX=self.originX,
+                          originY=self.originY)
+        
+
     
         
         
+def setIgnores(ignore):
+    __IGNORES = []
+    _IGNOREMAP = {
+        'sound':('SOND', 'AUDO'),
+        'textures':('TXTR', ),
+        'sprites':('SPRT', ),
+        }
+    for i in ignore:
+        __IGNORES += _IGNOREMAP.get(i)
         
+    Section.IGNORES = __IGNORES
+    
+
 def load(path, output_dir='.'):
     with FileReadStream(path) as fs:
         d = Data()
