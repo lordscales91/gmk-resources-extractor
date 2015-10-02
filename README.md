@@ -10,7 +10,7 @@ Usage
 ----
 	python launch.py <data.win> [output_dir]
 	[-ignore {sound,textures,sprites} [{sound,textures,sprites} ...]]
-	[-h, --help]Show the help
+	[-h, --help]
 
 *&lt;data.win&gt;* refers to the main resource file usually called with this name.
 
