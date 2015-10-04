@@ -4,6 +4,7 @@ from xml.dom import minidom
 import os
 import logging
 import math
+from PIL import Image
 
 class Data:
     
@@ -42,6 +43,12 @@ class Data:
                 sect.saveResources(base_path, data_file=fs)
             
         logging.info('### Resources saved ###')
+        
+    def convertResources(self, base_dir, fs):
+        for sect in self.sections:
+            sect.convertResources(base_dir, fs)
+            
+        logging.info('### Resources metadata processed ###')
                         
             
 class Section:    
@@ -60,6 +67,7 @@ class Section:
             'AUDO':AudioSection,
             'TXTR':TextureSection,
             'SPRT':SpriteSection,
+            'TPAG':TexturePackageSection,
             }
         section_tag = fs.readTag()
         if section_tag == 'EOF':
@@ -79,6 +87,9 @@ class Section:
     
     def saveResources(self, base_dir, subdir=None, filenames=None, data_file=None):
         raise Exception("Not implemented! Implement in subclasses")
+    
+    def convertResources(self, base_dir, data_file=None):
+        raise Exception("Not implemented! Implement in subclasses")
             
 class IgnoreSection(Section):
     
@@ -92,6 +103,9 @@ class IgnoreSection(Section):
             
     def saveResources(self, base_dir, subdir=None, filenames=None, data_file=None):
         logging.info('Ignoring resources for '+self.tag +" section")
+        
+    def convertResources(self, base_dir, data_file=None):
+        logging.info('Ignoring metadata for '+self.tag+' section')
         
 class SoundSection(Section):
     
@@ -130,6 +144,9 @@ class SoundSection(Section):
             
     def saveResources(self, base_dir, subdir=None, filenames=None, data_file=None):
         logging.info('no resources for Sound section only metadata')
+    
+    def convertResources(self, base_dir, data_file=None):
+        logging.info('metadata conversion not applicable to '+self.tag+' section')
             
             
 class SoundEntry:
@@ -207,6 +224,10 @@ class AudioSection(Section):
                 f.write(audio_data) # And we store it
                 
         logging.info('Saved {0} audio files'.format(len(self.audio_offsets)))
+    
+    def convertResources(self, base_dir, data_file=None):
+        logging.info('metadata conversion not applicable to '+self.tag+' section')
+    
 
 class TextureSection(Section):    
     def __init__(self, *args):
@@ -262,6 +283,9 @@ class TextureSection(Section):
                 f.write(tex_data) 
                 
         logging.info('Saved {0} texture files'.format(len(self.texture_entries)))
+    
+    def convertResources(self, base_dir, data_file=None):
+        logging.info('metadata conversion not applicable to '+self.tag+' section')
         
 
 class TextureEntry:
@@ -311,6 +335,9 @@ class SpriteSection(Section):
             entry.load(fs)
             self.sprite_entries.append(entry)
             
+        fs.moveToOffset(self.start_off)
+        fs.skipBytes(self.size)
+            
     def saveResources(self, base_dir, subdir=None, filenames=None, data_file=None):
         logging.info('### Saving Resources for Sprite section ###')
         root = tree.Element('sprites')
@@ -333,10 +360,13 @@ class SpriteSection(Section):
         ugly = tree.tostring(root, 'utf-8')
         reparsed = minidom.parseString(ugly)
         pretty = reparsed.toprettyxml(indent='  ', newl=os.linesep, encoding='utf-8')
-        xml = os.path.join(base_dir, 'sprites.xml')
+        xml = os.path.join(base_dir, 'sprites-metadata.xml')
         with open(xml, 'wb') as f:
             f.write(pretty)
-        logging.info('Saved {0} sprite entries metadata into an XML'.format(len(self.sprite_entries)))
+        logging.info('Saved {0} sprite metadata entries into an XML'.format(len(self.sprite_entries)))
+        
+    def convertResources(self, base_dir, data_file=None):
+        logging.info('metadata conversion not applicable to '+self.tag+' section')
         
 
 class SpriteEntry:
@@ -369,8 +399,8 @@ class SpriteEntry:
         for i in range(count):
             self.subimages_offsets.append(fs.readInt())
         self.collision_mask = fs.readInt()
-        for i in range(math.ceil(self.width/8) * self.height):
-            self.mask += fs.readBytes(1)
+        num_bytes = math.ceil(self.width / 8) * self.height
+        self.mask = fs.readBytes(num_bytes)
             
     def __repr__(self):
         return str.format('<SpriteEntry name={name:}, width={width:d}, height={height:d}, '+
@@ -379,8 +409,113 @@ class SpriteEntry:
                           originY=self.originY)
         
 
-    
+class TexturePackageSection(Section):
+    def __init__(self, *args):
+        Section.__init__(self, *args)
+        self.package_offsets = []
+        self.package_entries = []        
         
+    def load(self, fs):
+        logging.info('### Processing Texture Package Section ###')
+        count = fs.readInt()
+        logging.info('Reading {0} entry offsets'.format(count))
+        for i in range(count):
+            self.package_offsets.append(fs.readInt())
+        logging.info('Loading {0} entries'.format(count))
+        for off in self.package_offsets:
+            fs.moveToOffset(off)
+            entry = TexturePackageEntry()
+            entry.load(fs)
+            self.package_entries.append(entry)
+            
+        fs.moveToOffset(self.start_off)
+        fs.skipBytes(self.size)
+            
+    def saveResources(self, base_dir, subdir=None, filenames=None, data_file=None):
+        logging.info('### Saving Resources for Texture Package section ###')
+        root = tree.Element('texture-packages')
+        for entry in self.package_entries:
+            attrib = {
+                'originX':str(entry.originX),
+                'originY':str(entry.originY),
+                'width':str(entry.width),
+                'heigth':str(entry.heigth),
+                'subframeX':str(entry.subframeX),
+                'subframeY':str(entry.subframeY),
+                'subframeWidth':str(entry.subframeWidth),
+                'subframeHeight':str(entry.subframeHeight),
+                'canvasWidth':str(entry.canvasWidth),
+                'canvasHeight':str(entry.canvasHeight),
+                'textureId':str(entry.textureId),
+                }
+            tree.SubElement(root, 'package', attrib)
+            
+        ugly = tree.tostring(root, 'utf-8')
+        reparsed = minidom.parseString(ugly)
+        pretty = reparsed.toprettyxml(indent='  ', newl=os.linesep, encoding='utf-8')
+        xml = os.path.join(base_dir, 'texture-metadata.xml')
+        with open(xml, 'wb') as f:
+            f.write(pretty)
+            
+        logging.info('Saved {0} texture metadata entries into an XML file'.format(len(self.package_entries)))
+        
+    def convertResources(self, base_dir, data_file=None):
+        sprites_file = os.path.join(base_dir, 'sprites-metadata.xml') 
+        sprite_entries = tree.parse(sprites_file).iter('sprite')
+        texture_dir = os.path.join(base_dir, 'textures')
+        sprite_dir = os.path.join(base_dir, 'sprites')
+        if not os.path.exists(sprite_dir):
+            os.mkdir(sprite_dir)
+        sprite_count = 0
+        logging.info('### Converting Sprite metadata ###')
+        for e in sprite_entries:
+            name = e.attrib['name']
+            offsets = e.find('subimages').iter('offset')
+            for i, eoff in enumerate(offsets):
+                val = int(eoff.attrib['value'])                
+                for off, entry in zip(self.package_offsets, self.package_entries):
+                    if off == val: # Entry found
+                        tex = os.path.join(texture_dir, 'tex'+str(entry.textureId)+'.png')
+                        img = Image.open(tex)
+                        cropped = img.crop((entry.originX, entry.originY, entry.originX+entry.width,
+                                            entry.originY+entry.heigth))
+                        path = os.path.join(sprite_dir, name+'_'+str(i)+'.png')
+                        cropped.save(path, 'PNG')
+                        sprite_count += 1
+                        break
+                    
+        logging.info('Saved {0} sprites'.format(sprite_count))                                 
+                
+        
+class TexturePackageEntry:
+    def __init__(self):
+        self.originX = 0
+        self.originY = 0
+        self.width = 0
+        self.heigth = 0
+        self.subframeX = 0
+        self.subframeY = 0
+        self.subframeWidth = 0
+        self.subframeHeight = 0
+        self.canvasWidth = 0
+        self.canvasHeight = 0
+        self.textureId = 0
+    
+    def load(self, fs):
+        self.originX = fs.readShort()
+        self.originY = fs.readShort()
+        self.width = fs.readShort()
+        self.heigth = fs.readShort()
+        self.subframeX = fs.readShort()
+        self.subframeY = fs.readShort()
+        self.subframeWidth = fs.readShort()
+        self.subframeHeight = fs.readShort()
+        self.canvasWidth = fs.readShort()
+        self.canvasHeight = fs.readShort()
+        self.textureId = fs.readShort()
+            
+
+CONVERT_RESOURCES = False #Flag indicating whether the resource metadata should be processed
         
 def setIgnores(ignore):
     __IGNORES = []
@@ -400,5 +535,7 @@ def load(path, output_dir='.'):
         d = Data()
         d.load(fs)
         d.saveResources(output_dir, fs)
+        if CONVERT_RESOURCES:
+            d.convertResources(output_dir, fs)
         
     

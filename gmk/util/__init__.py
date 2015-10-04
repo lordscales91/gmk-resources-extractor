@@ -56,6 +56,10 @@ class FileReadStream(FileStream):
         v, = struct.unpack('<i', self.__fin.read(4))
         return v
     
+    def readShort(self):
+        v, = struct.unpack('<h', self.__fin.read(2))
+        return v
+    
     def readStr(self):
         length = self.readInt()
         fmt = '<' + str(length) + 's'
